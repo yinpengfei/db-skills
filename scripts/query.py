@@ -395,6 +395,47 @@ def list_tables(db_alias: str, env: str, config_override: str | None = None,
     return [r[0] for r in rows]
 
 
+def list_tables_with_info(db_alias: str, env: str,
+                          config_override: str | None = None,
+                          _conn=None) -> tuple:
+    """获取表列表（含 COMMENT + 预估行数）。
+
+    返回: (columns, rows)
+      columns: ["Table", "Rows", "Comment"]
+      rows:    [(name, row_count, comment), ...]
+
+    MySQL: information_schema.TABLES
+    PostgreSQL: information_schema.tables + pg_class
+    """
+    conn_info = get_connection(db_alias, env, config_override)
+    db_type = conn_info["type"].lower()
+
+    if db_type in ("mysql", "mariadb"):
+        sql = (
+            "SELECT TABLE_NAME, TABLE_ROWS, TABLE_COMMENT "
+            "FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() "
+            "ORDER BY TABLE_NAME"
+        )
+    elif db_type in ("postgresql", "postgres"):
+        sql = (
+            "SELECT "
+            "  t.table_name, "
+            "  COALESCE(c.reltuples::bigint, 0), "
+            "  pg_catalog.obj_description(c.oid) "
+            "FROM information_schema.tables t "
+            "LEFT JOIN pg_class c ON c.relname = t.table_name "
+            "WHERE t.table_schema = 'public' "
+            "ORDER BY t.table_name"
+        )
+    else:
+        raise ValueError(f"不支持的数据库类型: {db_type}")
+
+    columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
+    columns = ["Table", "Rows", "Comment"]
+    return columns, rows
+
+
 def show_create_table(db_alias: str, table_name: str, env: str,
                      config_override: str | None = None,
                      _conn=None) -> str:
@@ -920,9 +961,11 @@ def main():
   python query.py mydb "SELECT ..." --timeout 30               # 30s 超时
   python query.py --list                                       # 扫描所有环境
   python query.py --list --env prod                            # 只看 prod
-  python query.py --env prod mydb --show                       # 列出 prod 表
-  python query.py mydb --desc goods_gift                   # 查看表结构
-  python query.py mydb --desc ALL                           # 全部表结构
+  python query.py --env prod mydb --show                       # 列出 prod 全部表
+  python query.py mydb --show "user_*"                        # 通配符匹配表名
+  python query.py mydb -s user_info                           # 查单表元信息
+  python query.py mydb --desc goods_gift                       # 查看表结构（表格）
+  python query.py mydb --desc ALL                               # 全部表结构
   python query.py mydb --desc "user_*"                      # 通配符匹配
   python query.py mydb --ddl user_info                      # 查看 DDL
   python query.py mydb --ping                                    # 连接测试
@@ -948,8 +991,8 @@ def main():
         help="列出所有已配置的数据库连接"
     )
     parser.add_argument(
-        "--show", "-s", action="store_true",
-        help="列出指定数据库的表"
+        "--show", "-s", nargs="?", const="ALL", default=False, metavar="TABLE",
+        help="列出数据库表 (可指定表名 / 通配符: user_*, 默认 ALL)"
     )
     parser.add_argument(
         "--desc", "-d", metavar="TABLE",
@@ -1030,13 +1073,24 @@ def main():
         return
 
     # ── --show ──
-    if args.show:
+    if args.show is not False:  # --show 或 --show TABLE_PATTERN
         try:
-            tables = list_tables(args.db_alias, env, args.config)
+            pattern = args.show if isinstance(args.show, str) and args.show else None
+            cols, all_rows = list_tables_with_info(args.db_alias, env, args.config)
+
+            # 通配符过滤
+            if pattern and (pattern.upper() == "ALL" or "*" in pattern or "?" in pattern):
+                if pattern.upper() != "ALL":
+                    all_rows = [r for r in all_rows if fnmatch.fnmatch(str(r[0]), pattern)]
+            elif pattern:
+                all_rows = [r for r in all_rows if str(r[0]) == pattern]
+
             label = f"{args.db_alias} ({env})"
-            print(f"数据库 [{label}] 表列表 ({len(tables)}):")
-            for t in tables:
-                print(f"  - {t}")
+            print(f"━━━ {label} — {len(all_rows)} 张表 ━━━")
+            if all_rows:
+                format_output(cols, all_rows, args.format, show_row_count=False)
+            else:
+                print("  (无匹配的表)")
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)

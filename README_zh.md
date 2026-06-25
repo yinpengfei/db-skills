@@ -1,6 +1,6 @@
 # db-query — 多环境数据库查询 CLI 工具（AI 助手通用）
 
-一个通用的 **数据库 CLI 工具** / **数据库查询技能**，让 **Claude Code**、**OpenCode**、**Hermes**、**Cursor**、**WorkBuddy** 等任意 AI 编程助手通过预配置的数据库别名按环境执行只读 SQL 查询。可作为 AI 编程助手的数据库工具（db skill / database skill）直接集成，不用再给 AI 贴 host/port/user — 告诉它别名和查询语句即可。
+一个通用的命令行工具，让 **Claude Code**、**OpenCode**、**Hermes**、**Cursor**、**WorkBuddy** 等任意 AI 编程助手通过预配置的数据库别名按环境执行只读 SQL 查询。不用再给 AI 贴 host/port/user — 告诉它别名和查询语句即可。
 
 [English](./README_EN.md)
 
@@ -126,11 +126,11 @@ python3 scripts/query.py my_db -d users --format json     # 表结构也支持
 
 ## 在 AI 助手对话中使用
 
-安装后，直接对 AI 说（这就是一个 **数据库 skill** / **db skills** 的用法）：
+安装后，直接对 AI 说：
 
 > 查一下 dev 环境 mydb 的 orders 表，最近 10 条未支付记录
 
-AI 会自动构造 `python3 scripts/query.py ...` 命令并执行。这个 **AI 数据库查询** 功能对不同助手略有差异：
+AI 会自动构造 `python3 scripts/query.py ...` 命令并执行。不同 AI 助手略有差异：
 
 **Claude Code / Cursor Agent / Hermes** — 直接对话，AI 会自动调用 shell：
 
@@ -170,7 +170,7 @@ dbq my_db -d users
 ```
 db-query/
 ├── SKILL.md                           # WorkBuddy 技能入口
-├── README.md                          # 中文文档（GitHub 默认展示）
+├── README.md                           # 中文文档（GitHub 默认展示）
 ├── README_EN.md                       # English docs
 ├── scripts/
 │   ├── query.py                       # 主脚本
@@ -210,4 +210,3 @@ python3 scripts/test.py
 ## License
 
 MIT
-
