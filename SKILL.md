@@ -9,9 +9,9 @@ description: |-
   功能: --show 表列表(含行数+注释)、--desc 表结构(含索引)、--ddl 建表语句、--dry-run 预览写操作、
   --ping 连接测试、通配符匹配、--timeout 超时、--limit 对 DELETE/UPDATE 支持。
   触发场景: 查询指定数据库、执行写操作、列出数据库表、查看表结构、查看建表语句、连接测试、预览写操作、查看已配置连接。
-  关键词: 查数据库、数据库查询、SQL 查询、DB query、查询 XX 库、写数据库、插入数据、修改数据、删除数据、
-  列出数据库表、数据库连接列表、查看表结构、查看DDL、表注释、db skill、db skills、database skill、
-  database skills、数据库 skill、数据库 skills、数据库技能、MySQL CLI、SQLite CLI、AI 数据库工具、dbq。
+  关键词: 查数据库、SQL查询、DB query、写数据库、插入数据、修改数据、删除数据、
+  列出数据库表、查看表结构、查看DDL、db skill、database skill、数据库技能、
+  MySQL CLI、SQLite CLI、AI数据库工具、dbq。
 agent_created: true
 ---
 
