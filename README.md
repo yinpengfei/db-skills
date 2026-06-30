@@ -107,7 +107,7 @@ connections:
 
 | 方式 | 命令 | 安全性 |
 |------|------|--------|
-| **A. Keychain** | `python3 scripts/query.py --keychain-set --env dev my_db` | ⭐⭐⭐ 系统级加密 |
+| **A. Keychain** | `python3 scripts/query.py --keychain-set my_db --env dev` | ⭐⭐⭐ 系统级加密 |
 | **B. .env 文件** | `echo "MY_DB_PASS=xxx" >> assets/.env` | ⭐⭐ 本地文件 |
 | **C. 环境变量** | `export MY_DB_PASS=xxx` | ⭐ CI/CD 注入 |
 

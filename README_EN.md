@@ -107,7 +107,7 @@ connections:
 
 | Method | Command | Security |
 |--------|---------|----------|
-| **A. Keychain** | `python3 scripts/query.py --keychain-set --env dev my_db` | ⭐⭐⭐ System-level encryption |
+| **A. Keychain** | `python3 scripts/query.py --keychain-set my_db --env dev` | ⭐⭐⭐ System-level encryption |
 | **B. .env file** | `echo "MY_DB_PASS=xxx" >> assets/.env` | ⭐⭐ Local file |
 | **C. Env var** | `export MY_DB_PASS=xxx` | ⭐ CI/CD injection |
 

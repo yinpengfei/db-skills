@@ -63,9 +63,9 @@ chmod 600 assets/connections.prod.yaml
 
 # 3. 密码 (三选一，按优先级)
 #    a) Keychain (推荐):
-python scripts/query.py --keychain-set --env dev recharge_db
-python scripts/query.py --keychain-set --env test recharge_db
-python scripts/query.py --keychain-set --env prod recharge_db
+python scripts/query.py --keychain-set recharge_db --env dev
+python scripts/query.py --keychain-set recharge_db --env test
+python scripts/query.py --keychain-set recharge_db --env prod
 #    b) .env 文件:
 cp -n assets/.env.example assets/.env
 # 编辑填入 DB_PWD_DEV_RECHARGE_DB=xxx 等

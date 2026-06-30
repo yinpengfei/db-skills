@@ -21,7 +21,7 @@
     python query.py <db_alias> --desc "user_*"                   # 通配符匹配
     python query.py <db_alias> --ddl user_info                   # 建表 DDL
     python query.py <db_alias> --ping                                # 连接测试
-    python query.py --keychain-set --env prod <alias>                # 存密码
+    python query.py --keychain-set <alias> --env prod                # 存密码
 """
 
 from __future__ import annotations
@@ -1257,7 +1257,7 @@ def main():
   python query.py mydb --desc "user_*"                      # 通配符匹配
   python query.py mydb --ddl user_info                      # 查看 DDL
   python query.py mydb --ping                                    # 连接测试
-  python query.py --keychain-set --env prod mydb               # 存密码
+  python query.py --keychain-set mydb --env prod               # 存密码
         """,
     )
     parser.add_argument("db_alias", nargs="?", help="数据库别名")
