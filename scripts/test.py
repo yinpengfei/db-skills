@@ -28,28 +28,32 @@ try:
 except ImportError:
     print("⚠️  需要 PyYAML: pip install pyyaml")
 
-from query import (
+from db_config import (
     _load_any_config,
     _resolve_placeholders,
     _load_dotenv,
     _resolve_password,
     _keychain_service,
     _dotenv_var,
+    _config_file_for,
+    ENV_FILE,
+    LOG_DIR,
+)
+from db_guard import (
     _has_limit,
     _inject_limit,
     _format_number,
     _filter_by_pattern,
-    _open_raw_connection,
-    _log_query,
-    validate_sql,
     _sql_type,
     _strip_sql_comments,
     _split_sql_statements,
     _check_where_clause,
     _resolve_write_permission,
-    _config_file_for,
-    ENV_FILE,
-    LOG_DIR,
+)
+from db_core import (
+    _open_raw_connection,
+    _log_query,
+    validate_sql,
 )
 
 PASS = "✅"
@@ -136,9 +140,9 @@ def test_placeholder_resolution():
     os.environ["TEST_VAR_EXT"] = "from_environ"
 
     # 临时改 ENV_FILE 指向测试文件
-    import query as q
-    original_env = q.ENV_FILE
-    q.ENV_FILE = env_tmp
+    import db_config
+    original_env = db_config.ENV_FILE
+    db_config.ENV_FILE = env_tmp
 
     try:
         data = {
@@ -178,7 +182,7 @@ def test_placeholder_resolution():
             conns["db3"]["host"] == "static_host",
         )
     finally:
-        q.ENV_FILE = original_env
+        db_config.ENV_FILE = original_env
         os.environ.pop("TEST_VAR_EXT", None)
         env_tmp.unlink()
 
@@ -252,9 +256,9 @@ def test_password_resolution_chain():
         f.write(env_text)
         env_tmp = Path(f.name)
 
-    import query as q
-    original_env = q.ENV_FILE
-    q.ENV_FILE = env_tmp
+    import db_config
+    original_env = db_config.ENV_FILE
+    db_config.ENV_FILE = env_tmp
 
     # 清除可能影响的环境变量
     os.environ.pop("DB_PWD_TEST_TESTALIAS", None)
@@ -278,7 +282,7 @@ def test_password_resolution_chain():
             check("无密码正确抛 RuntimeError", True)
 
     finally:
-        q.ENV_FILE = original_env
+        db_config.ENV_FILE = original_env
         os.environ.pop("DB_PWD_TEST_TESTALIAS2", None)
         env_tmp.unlink()
 
@@ -429,16 +433,16 @@ test_open_raw_connection_signature()
 section("10. 查询日志 (_log_query)")
 
 def test_log_query():
-    import query as q
+    import db_config
     import time
 
     # 用临时目录替换 LOG_DIR
     with tempfile.TemporaryDirectory() as tmp:
-        original_log_dir = q.LOG_DIR
-        q.LOG_DIR = Path(tmp)
+        original_log_dir = db_config.LOG_DIR
+        db_config.LOG_DIR = Path(tmp)
         try:
             _log_query("testdb", "dev", "SELECT 1", 1, 0.001)
-            log_files = list(q.LOG_DIR.glob("*.log"))
+            log_files = list(db_config.LOG_DIR.glob("*.log"))
             check("日志文件已创建", len(log_files) == 1)
 
             content = log_files[0].read_text()
@@ -454,7 +458,7 @@ def test_log_query():
             check("ERROR 日志正确", "ERROR" in content2)
 
         finally:
-            q.LOG_DIR = original_log_dir
+            db_config.LOG_DIR = original_log_dir
 
 
 test_log_query()
