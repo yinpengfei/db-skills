@@ -1,4 +1,4 @@
-# db-skills — 多环境数据库查询与写入 CLI 工具（AI 助手通用）
+# dbq — 多环境数据库查询与写入 CLI 工具（AI 助手通用）
 
 一个通用的**数据库 CLI 工具** / **数据库操作技能**，让 **Claude Code**、**OpenCode**、**Cursor**、**WorkBuddy** 等任意 AI 编程助手通过预配置的数据库别名按环境执行 SQL 操作。支持查询 / 插入 / 更新 / 删除 / 改表，写操作由 YAML 配置精确控制。可作为 AI 编程助手的数据库工具（db skill / database skill）直接集成，不用再给 AI 贴 host/port/user —— 告诉它别名和语句即可。
 
@@ -231,7 +231,7 @@ AI 会自动构造 `python3 scripts/query.py ...` 命令并执行。这个 **AI 
 
 ```bash
 # 设置别名方便调用
-alias dbq='python3 ~/.workbuddy/skills/db-skills/scripts/query.py'
+alias dbq='python3 ~/.workbuddy/skills/dbq/scripts/query.py'
 dbq my_db -d users
 ```
 
@@ -266,7 +266,7 @@ dbq my_db -d users
 ## 目录结构
 
 ```
-db-skills/
+dbq/
 ├── SKILL.md                           # WorkBuddy 技能入口
 ├── README.md                          # 中文文档（GitHub 默认展示）
 ├── README_EN.md                       # English docs
@@ -294,7 +294,7 @@ db-skills/
 
 ```bash
 python3 scripts/test.py
-# → 99/99 通过 🎉
+# → 110/110 通过 🎉
 ```
 
 测试覆盖：YAML 加载、`${VAR}` 占位符解析、SQL 分类与校验（READ/DML/DDL/BLOCKED）、写操作权限解析、无 WHERE 拦截、--dry-run、--limit 对 DML、密码解析链、CLI 参数、通配符匹配、日志记录。

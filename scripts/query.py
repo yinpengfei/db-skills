@@ -69,11 +69,11 @@ except ImportError:
 
 # ── 密码解析 ────────────────────────────────────────────────
 # 优先级: macOS Keychain > .env 文件 > 父进程环境变量
-# Keychain 条目: service=db-skills/{env}/{alias}
+# Keychain 条目: service=dbq/{env}/{alias}
 # .env 变量名:   DB_PWD_{ENV}_{ALIAS}  (全大写，短横换下划线)
 
 def _keychain_service(env: str, alias: str) -> str:
-    return f"db-skills/{env}/{alias}"
+    return f"dbq/{env}/{alias}"
 
 
 def _dotenv_var(env: str, alias: str) -> str:
@@ -111,7 +111,7 @@ def _resolve_password(env: str, alias: str) -> str:
             result = subprocess.run(
                 [
                     "security", "find-generic-password",
-                    "-a", "db-skills",
+                    "-a", "dbq",
                     "-s", service,
                     "-w",
                 ],
@@ -133,7 +133,7 @@ def _resolve_password(env: str, alias: str) -> str:
 
     raise RuntimeError(
         f"无法获取 [{alias}] ({env} 环境) 的密码。请通过以下任一方式配置:\n"
-        f"  1. Keychain: security add-generic-password -a db-skills -s {service} -w '密码'\n"
+        f"  1. Keychain: security add-generic-password -a dbq -s {service} -w '密码'\n"
         f"  2. assets/.env: {env_var}=密码\n"
         f"  3. 环境变量: export {env_var}=密码"
     )
@@ -345,7 +345,7 @@ def _open_raw_connection(db_alias: str, env: str,
 
 def _log_query(db_alias: str, env: str, sql: str, row_count: int,
                elapsed: float, status: str = "OK", op_type: str = ""):
-    """将查询记录写入日志文件。日志位于 db-skills/logs/YYYY-MM-DD.log。"""
+    """将查询记录写入日志文件。日志位于 dbq/logs/YYYY-MM-DD.log。"""
     try:
         if not LOG_DIR.exists():
             LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -1628,7 +1628,7 @@ def _handle_keychain_set(alias: str, env: str, args):
     subprocess.run(
         [
             "security", "add-generic-password",
-            "-a", "db-skills",
+            "-a", "dbq",
             "-s", service,
             "-w", pwd,
             "-U",

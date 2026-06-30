@@ -1,4 +1,4 @@
-# db-skills — Multi-Environment Database Query & Write CLI for AI Agents
+# dbq — Multi-Environment Database Query & Write CLI for AI Agents
 
 A universal **database CLI tool** / **database skill** that lets **Claude Code**, **OpenCode**, **Hermes**, **Cursor**, **WorkBuddy**, and any AI coding assistant execute SQL operations (SELECT / INSERT / UPDATE / DELETE / DDL) using pre-configured database aliases across multiple environments. Write operations are controlled via YAML configuration with fine-grained permissions. Use it as an **AI agent database tool** (db skill / database skills) — stop pasting host/port/user to your AI; just tell it the alias and query.
 
@@ -229,7 +229,7 @@ Show me all tables in prod user_db, then insert a test user with name=test
 **For more reliable registration as a custom tool**:
 
 ```bash
-alias dbq='python3 ~/.workbuddy/skills/db-skills/scripts/query.py'
+alias dbq='python3 ~/.workbuddy/skills/dbq/scripts/query.py'
 dbq my_db -d users
 ```
 
@@ -264,7 +264,7 @@ Environment Variables:
 ## Directory Structure
 
 ```
-db-skills/
+dbq/
 ├── SKILL.md                           # WorkBuddy skill entry
 ├── README.md                          # Chinese docs (default on GitHub)
 ├── README_EN.md                       # English docs
@@ -292,7 +292,7 @@ Verify all core logic without a database connection:
 
 ```bash
 python3 scripts/test.py
-# → 99/99 passed 🎉
+# → 110/110 passed 🎉
 ```
 
 Test coverage: YAML loading, `${VAR}` placeholder resolution, SQL classification & validation (READ/DML/DDL/BLOCKED), write permission resolution, no-WHERE protection, --dry-run, --limit for DML, password resolution chain, CLI arguments, wildcard matching, logging.

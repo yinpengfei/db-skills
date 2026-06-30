@@ -1,5 +1,5 @@
 ---
-name: db-skills
+name: dbq
 description: |-
   数据库查询与写入工具。通过预配置的数据库别名按环境快速执行 SQL 操作。
   支持 MySQL / MariaDB / PostgreSQL / SQLite（零依赖开箱即用），输出格式支持 table / json / csv。
@@ -11,11 +11,11 @@ description: |-
   触发场景: 查询指定数据库、执行写操作、列出数据库表、查看表结构、查看建表语句、连接测试、预览写操作、查看已配置连接。
   关键词: 查数据库、数据库查询、SQL 查询、DB query、查询 XX 库、写数据库、插入数据、修改数据、删除数据、
   列出数据库表、数据库连接列表、查看表结构、查看DDL、表注释、db skill、db skills、database skill、
-  database skills、数据库 skill、数据库 skills、数据库技能、MySQL CLI、SQLite CLI、AI 数据库工具、db-skills。
+  database skills、数据库 skill、数据库 skills、数据库技能、MySQL CLI、SQLite CLI、AI 数据库工具、dbq。
 agent_created: true
 ---
 
-# 数据库操作技能 (db-skills)
+# 数据库操作技能 (dbq)
 
 基于预配置连接信息的多环境数据库操作工具。默认只读，写操作需通过 YAML 配置显式开启。
 
@@ -43,9 +43,9 @@ agent_created: true
 
 | 环境 | 配置文件 | 密码 Keychain 条目 |
 |------|---------|-------------------|
-| dev (默认) | `connections.dev.yaml` | `db-skills/dev/{alias}` |
-| test | `connections.test.yaml` | `db-skills/test/{alias}` |
-| prod | `connections.prod.yaml` | `db-skills/prod/{alias}` |
+| dev (默认) | `connections.dev.yaml` | `dbq/dev/{alias}` |
+| test | `connections.test.yaml` | `dbq/test/{alias}` |
+| prod | `connections.prod.yaml` | `dbq/prod/{alias}` |
 
 默认环境为 `dev`，可通过环境变量 `DB_QUERY_DEFAULT_ENV=test` 修改。
 
@@ -82,7 +82,7 @@ cp -n assets/.env.example assets/.env
 | `${VAR}` 占位 | `password: ${PWD_PROD}` | `.env` 的 `PWD_PROD` 变量 | **多库共享密码（推荐）** |
 | 环境变量 | `password: ${MY_PASS}` | `os.environ["MY_PASS"]` | CI/CD 注入 |
 
-Keychain 条目格式：`service=db-skills/{env}/{alias}`，例如 `db-skills/dev/recharge_db`。
+Keychain 条目格式：`service=dbq/{env}/{alias}`，例如 `dbq/dev/recharge_db`。
 
 ### 🔒 安全红线
 
@@ -247,7 +247,7 @@ connections:
 无需数据库即可验证所有逻辑：
 
 ```bash
-cd ~/.workbuddy/skills/db-skills
+cd ~/.workbuddy/skills/dbq
 python3 scripts/test.py
 ```
 

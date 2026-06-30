@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""db-skills 技能测试 —— 无需实际数据库连接。
+"""dbq 技能测试 —— 无需实际数据库连接。
 
 测试范围:
   1. YAML 配置文件加载
@@ -285,7 +285,7 @@ def test_password_resolution_chain():
 
 def test_keychain_naming():
     service = _keychain_service("prod", "recharge_db")
-    check("Keychain service 命名", service == "db-skills/prod/recharge_db")
+    check("Keychain service 命名", service == "dbq/prod/recharge_db")
 
     var_name = _dotenv_var("dev", "recharge-db")
     check(".env 变量命名 (含短横)", var_name == "DB_PWD_DEV_RECHARGE_DB")
