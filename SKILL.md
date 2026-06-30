@@ -216,6 +216,8 @@ prod        recharge_db           mysql       10.19.xx.xx         3306     recha
 - 密码不存储在任何配置文件中
 - **严禁将 `assets/connections*.yaml` 或 `assets/.env` 读入 AI 上下文**
 - **严禁删除 assets/ 下的任何 .yaml 或 .env 文件**（用户配置文件，`rm -f` 一律禁止）
+- **修改 assets/ 下任何用户配置文件前必须先备份**：`cp file.yaml file.yaml.bak-$(date +%Y%m%d-%H%M%S)`，再执行修改
+- **严禁用 Write 工具创建/覆盖已存在的用户配置文件**——如果文件已存在，只允许 Edit 追加
 - 清理操作仅限于 `/tmp`、`tempfile` 创建的临时目录，绝不触碰 `assets/`
 
 ### 写操作配置示例
