@@ -1,25 +1,41 @@
 ---
-name: db-query
+name: db-skills
 description: |-
-  数据库查询工具。通过预配置的数据库别名按环境快速执行 SELECT 只读查询。
-  支持 MySQL / MariaDB / PostgreSQL，输出格式支持 table / json / csv。
+  数据库查询与写入工具。通过预配置的数据库别名按环境快速执行 SQL 操作。
+  支持 MySQL / MariaDB / PostgreSQL / SQLite（零依赖开箱即用），输出格式支持 table / json / csv。
   多环境支持: --env dev|test|prod + prod 独立配置文件隔离。
-  安全机制: Keychain 三级密码查找、大表自动 LIMIT 100、EXPLAIN 索引分析、查询日志、仅只读。
-  功能: --show 表列表(含行数+注释)、--desc 表结构(含索引)、--ddl 建表语句、--ping 连接测试、通配符匹配、--timeout 超时。
-  触发场景: 查询指定数据库、列出数据库表、查看表结构、查看建表语句、连接测试、查看已配置连接。
-  关键词: 查数据库、数据库查询、SQL 查询、DB query、查询 XX 库、列出数据库表、数据库连接列表、查看表结构、查看DDL、表注释、db skill、db skills、database skill、database skills、数据库 skill、数据库 skills、数据库技能、MySQL CLI、AI 数据库工具、db-query。
+  安全机制: 默认只读、写操作需配置 readonly: false、DDL 需 allow_ddl: true、Keychain 三级密码查找、
+  EXPLAIN 索引分析、大表自动 LIMIT 100、写操作确认提示、DELETE/UPDATE 无 WHERE 拦截、查询日志。
+  功能: --show 表列表(含行数+注释)、--desc 表结构(含索引)、--ddl 建表语句、--dry-run 预览写操作、
+  --ping 连接测试、通配符匹配、--timeout 超时、--limit 对 DELETE/UPDATE 支持。
+  触发场景: 查询指定数据库、执行写操作、列出数据库表、查看表结构、查看建表语句、连接测试、预览写操作、查看已配置连接。
+  关键词: 查数据库、数据库查询、SQL 查询、DB query、查询 XX 库、写数据库、插入数据、修改数据、删除数据、
+  列出数据库表、数据库连接列表、查看表结构、查看DDL、表注释、db skill、db skills、database skill、
+  database skills、数据库 skill、数据库 skills、数据库技能、MySQL CLI、SQLite CLI、AI 数据库工具、db-skills。
 agent_created: true
 ---
 
-# 数据库查询技能 (db-query)
+# 数据库操作技能 (db-skills)
 
-基于预配置连接信息的多环境数据库只读查询工具。连接信息集中配置，查询时只需指定数据库别名 + 环境。
+基于预配置连接信息的多环境数据库操作工具。默认只读，写操作需通过 YAML 配置显式开启。
 
 ## 触发条件
 
-- 用户要求执行 SQL 查询并指定了数据库别名
+- 用户要求执行 SQL 查询/写入并指定了数据库别名
 - 用户想查看某个数据库的表列表
 - 用户想查看已配置了哪些数据库连接
+- 用户想预览写操作（--dry-run）
+
+## 支持的数据库
+
+| 数据库 | 驱动 | 额外依赖 | 支持程度 |
+|--------|------|---------|---------|
+| **SQLite** | `sqlite3` (标准库) | 无 | ✅ 全部功能 |
+| MySQL | `pymysql` | `pip install pymysql` | ✅ 全部功能 |
+| MariaDB | `pymysql` | `pip install pymysql` | ✅ 全部功能 |
+| PostgreSQL | `psycopg2` | `pip install psycopg2-binary` | ✅ 全部功能 |
+
+**默认配置**：dev 环境开箱自带一个 `sqlite_test` 内存数据库，无需安装任何依赖即可测试。
 
 ## 多环境架构
 
@@ -27,9 +43,9 @@ agent_created: true
 
 | 环境 | 配置文件 | 密码 Keychain 条目 |
 |------|---------|-------------------|
-| dev (默认) | `connections.dev.yaml` | `db-query/dev/{alias}` |
-| test | `connections.test.yaml` | `db-query/test/{alias}` |
-| prod | `connections.prod.yaml` | `db-query/prod/{alias}` |
+| dev (默认) | `connections.dev.yaml` | `db-skills/dev/{alias}` |
+| test | `connections.test.yaml` | `db-skills/test/{alias}` |
+| prod | `connections.prod.yaml` | `db-skills/prod/{alias}` |
 
 默认环境为 `dev`，可通过环境变量 `DB_QUERY_DEFAULT_ENV=test` 修改。
 
@@ -66,7 +82,7 @@ cp -n assets/.env.example assets/.env
 | `${VAR}` 占位 | `password: ${PWD_PROD}` | `.env` 的 `PWD_PROD` 变量 | **多库共享密码（推荐）** |
 | 环境变量 | `password: ${MY_PASS}` | `os.environ["MY_PASS"]` | CI/CD 注入 |
 
-Keychain 条目格式：`service=db-query/{env}/{alias}`，例如 `db-query/dev/recharge_db`。
+Keychain 条目格式：`service=db-skills/{env}/{alias}`，例如 `db-skills/dev/recharge_db`。
 
 ### 🔒 安全红线
 
@@ -189,30 +205,60 @@ prod        recharge_db           mysql       10.19.xx.xx         3306     recha
 
 ## 安全限制
 
-- **仅允许只读查询**：SELECT / SHOW / DESCRIBE / EXPLAIN
-- DML（INSERT/UPDATE/DELETE）会被拒绝执行
+- **默认只读**：所有连接默认 `readonly: true`，DML/DDL 需显式配置
+- **操作分级**：
+  - 只读 (SELECT/SHOW/DESCRIBE/EXPLAIN) — 始终允许
+  - DML (INSERT/UPDATE/DELETE/REPLACE) — 需 `readonly: false`
+  - DDL (ALTER/CREATE/DROP/TRUNCATE) — 需 `allow_ddl: true`
+  - 禁止 (CALL/GRANT/SET/EXECUTE) — 始终拒绝
+- **无 WHERE 保护**：DELETE/UPDATE 无 WHERE 直接拒绝
+- **确认提示**：prod 环境写操作强制交互确认（`DB_QUERY_ASSUME_YES=1` 跳过）
 - 密码不存储在任何配置文件中
 - **严禁将 `assets/connections*.yaml` 或 `assets/.env` 读入 AI 上下文**
 - **严禁删除 assets/ 下的任何 .yaml 或 .env 文件**（用户配置文件，`rm -f` 一律禁止）
 - 清理操作仅限于 `/tmp`、`tempfile` 创建的临时目录，绝不触碰 `assets/`
+
+### 写操作配置示例
+
+```yaml
+# assets/connections.dev.yaml
+settings:
+  readonly_mode: false         # 环境级：整个 dev 环境允许 DML
+
+connections:
+  sqlite_test:
+    type: sqlite
+    path: ":memory:"
+    readonly: false            # 连接级：此连接允许 DML
+
+  prod_readonly:
+    type: mysql
+    host: 10.19.xx.xx
+    user: readonly
+    password: ${PWD_PROD}
+    database: recharge
+    # readonly 不写 = 默认 true，只读安全
+```
 
 ## 测试
 
 无需数据库即可验证所有逻辑：
 
 ```bash
-cd ~/.workbuddy/skills/db-query
+cd ~/.workbuddy/skills/db-skills
 python3 scripts/test.py
 ```
 
-测试覆盖：YAML 加载、`${VAR}` 占位符解析、SQL 校验、密码解析链、SQL 工具函数、CLI 参数、通配符匹配、日志记录。
+测试覆盖：YAML 加载、`${VAR}` 占位符解析、SQL 校验与分级、密码解析链、SQL 工具函数、CLI 参数、通配符匹配、日志记录、写操作权限、无 WHERE 拦截。
 
 ## 查询日志
 
-所有查询操作自动记录到 `logs/YYYY-MM-DD.log`，包含时间、环境、SQL、行数、耗时、状态：
+所有操作自动记录到 `logs/YYYY-MM-DD.log`，写操作额外标注类型：
 
 ```
-[2026-06-24 16:13:45] dev:qf_test_db | select * from goods_gift limit 3 | 3 rows | 0.009s | OK
+[2026-06-30 11:00:00] dev:test_db | SELECT * FROM users LIMIT 100 | 100 rows | 0.009s | OK
+[2026-06-30 11:00:05] dev:test_db | WRITE | DELETE FROM users WHERE id=1 | 1 rows | 0.003s | OK
+[2026-06-30 11:00:10] dev:test_db | DDL | CREATE TABLE t(id INT) | 0 rows | 0.002s | OK
 ```
 
 `logs/` 目录首次查询时自动创建。

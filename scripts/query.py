@@ -69,11 +69,11 @@ except ImportError:
 
 # ── 密码解析 ────────────────────────────────────────────────
 # 优先级: macOS Keychain > .env 文件 > 父进程环境变量
-# Keychain 条目: service=db-query/{env}/{alias}
+# Keychain 条目: service=db-skills/{env}/{alias}
 # .env 变量名:   DB_PWD_{ENV}_{ALIAS}  (全大写，短横换下划线)
 
 def _keychain_service(env: str, alias: str) -> str:
-    return f"db-query/{env}/{alias}"
+    return f"db-skills/{env}/{alias}"
 
 
 def _dotenv_var(env: str, alias: str) -> str:
@@ -111,7 +111,7 @@ def _resolve_password(env: str, alias: str) -> str:
             result = subprocess.run(
                 [
                     "security", "find-generic-password",
-                    "-a", "db-query",
+                    "-a", "db-skills",
                     "-s", service,
                     "-w",
                 ],
@@ -133,7 +133,7 @@ def _resolve_password(env: str, alias: str) -> str:
 
     raise RuntimeError(
         f"无法获取 [{alias}] ({env} 环境) 的密码。请通过以下任一方式配置:\n"
-        f"  1. Keychain: security add-generic-password -a db-query -s {service} -w '密码'\n"
+        f"  1. Keychain: security add-generic-password -a db-skills -s {service} -w '密码'\n"
         f"  2. assets/.env: {env_var}=密码\n"
         f"  3. 环境变量: export {env_var}=密码"
     )
@@ -244,15 +244,20 @@ def get_connection(db_alias: str, env: str, config_override: str | None = None) 
             f"可用别名: {', '.join(available) if available else '(无)'}"
         )
     conn = dict(connections[db_alias])  # 浅拷贝，避免污染缓存
-    required = ["type", "host", "port", "user", "database"]
-    missing = [k for k in required if k not in conn]
-    if missing:
-        raise ValueError(
-            f"数据库 {db_alias} 配置不完整，缺少字段: {', '.join(missing)}"
-        )
-    # 密码: YAML 中已解析的 ${VAR} 优先，否则走约定查找
-    if not conn.get("password"):
-        conn["password"] = _resolve_password(env, db_alias)
+    db_type = conn.get("type", "").lower()
+    if db_type in ("sqlite", "sqlite3"):
+        # SQLite 只需要 type + path，默认 :memory:
+        conn.setdefault("path", ":memory:")
+    else:
+        required = ["type", "host", "port", "user", "database"]
+        missing = [k for k in required if k not in conn]
+        if missing:
+            raise ValueError(
+                f"数据库 {db_alias} 配置不完整，缺少字段: {', '.join(missing)}"
+            )
+        # 密码: YAML 中已解析的 ${VAR} 优先，否则走约定查找
+        if not conn.get("password"):
+            conn["password"] = _resolve_password(env, db_alias)
     return conn
 
 
@@ -271,6 +276,7 @@ def _get_mysql_connection(conn_info: dict, timeout: int | None = None):
         database=conn_info["database"],
         charset=conn_info.get("charset", "utf8mb4"),
         connect_timeout=conn_info.get("connect_timeout", 10),
+        autocommit=True,   # CLI 工具每条语句自动提交
     )
     if timeout:
         kwargs["read_timeout"] = timeout
@@ -290,9 +296,25 @@ def _get_pg_connection(conn_info: dict, timeout: int | None = None):
         dbname=conn_info["database"],
         connect_timeout=conn_info.get("connect_timeout", 10),
     )
+    conn = psycopg2.connect(**kwargs)
+    conn.autocommit = True
     if timeout:
         kwargs["options"] = f"-c statement_timeout={timeout * 1000}"
     return psycopg2.connect(**kwargs)
+
+
+def _get_sqlite_connection(conn_info: dict, timeout: int | None = None):
+    """SQLite 驱动（使用标准库 sqlite3，零额外依赖）。
+    支持 path 字段: ':memory:' 或文件路径。
+    """
+    import sqlite3
+    path = conn_info.get("path", ":memory:")
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.isolation_level = None  # 真正的 autocommit
+    if timeout:
+        conn.execute(f"PRAGMA busy_timeout = {timeout * 1000}")
+    return conn
 
 
 _DRIVER_MAP = {
@@ -300,6 +322,8 @@ _DRIVER_MAP = {
     "mariadb": _get_mysql_connection,
     "postgresql": _get_pg_connection,
     "postgres": _get_pg_connection,
+    "sqlite": _get_sqlite_connection,
+    "sqlite3": _get_sqlite_connection,
 }
 
 
@@ -320,16 +344,17 @@ def _open_raw_connection(db_alias: str, env: str,
 # ── 查询日志 ────────────────────────────────────────────────
 
 def _log_query(db_alias: str, env: str, sql: str, row_count: int,
-               elapsed: float, status: str = "OK"):
-    """将查询记录写入日志文件。日志位于 db-query/logs/YYYY-MM-DD.log。"""
+               elapsed: float, status: str = "OK", op_type: str = ""):
+    """将查询记录写入日志文件。日志位于 db-skills/logs/YYYY-MM-DD.log。"""
     try:
         if not LOG_DIR.exists():
             LOG_DIR.mkdir(parents=True, exist_ok=True)
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = LOG_DIR / f"{today}.log"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tag = f" {op_type}" if op_type else ""
         line = (
-            f"[{timestamp}] {env}:{db_alias} | "
+            f"[{timestamp}] {env}:{db_alias} |{tag} "
             f"{sql} | "
             f"{row_count} rows | "
             f"{elapsed:.3f}s | "
@@ -338,18 +363,18 @@ def _log_query(db_alias: str, env: str, sql: str, row_count: int,
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(line)
     except Exception:
-        pass  # 日志写入失败不影响主流程
+        pass
 
 
 # ── 查询执行 ────────────────────────────────────────────────
 
 def execute_query(db_alias: str, sql: str, env: str,
                   config_override: str | None = None,
-                  _conn=None, _timeout: int | None = None):
-    """执行 SQL 查询，返回 (columns, rows)。
-
-    支持传入 _conn 复用连接（调用方需自行关闭），不传入则自管生命周期。
-    _timeout 为查询超时秒数（仅对新创建连接生效）。
+                  _conn=None, _timeout: int | None = None,
+                  _op_type: str = ""):
+    """执行 SQL。返回:
+      - 如果是 SELECT: (columns, rows)
+      - 如果是 DML/DDL: ([], affected_rows)
     """
     own_conn = False
     if _conn is not None:
@@ -365,13 +390,22 @@ def execute_query(db_alias: str, sql: str, env: str,
         start = time.time()
         cursor.execute(sql)
         elapsed = time.time() - start
-        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
-        _log_query(db_alias, env, sql.strip(), len(rows), elapsed)
-        return columns, rows
+
+        # DML/DDL vs SELECT 分叉
+        if cursor.description:
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            _log_query(db_alias, env, sql.strip(), len(rows), elapsed,
+                       op_type=_op_type)
+            return columns, rows
+        else:
+            affected = cursor.rowcount
+            _log_query(db_alias, env, sql.strip(), affected, elapsed,
+                       op_type=_op_type or "WRITE")
+            return [], affected
     except Exception:
         elapsed = time.time() - start
-        _log_query(db_alias, env, sql.strip(), 0, elapsed, "ERROR")
+        _log_query(db_alias, env, sql.strip(), 0, elapsed, "ERROR", _op_type)
         raise
     finally:
         if own_conn:
@@ -389,6 +423,8 @@ def list_tables(db_alias: str, env: str, config_override: str | None = None,
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = 'public' ORDER BY table_name"
         )
+    elif db_type in ("sqlite", "sqlite3"):
+        sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     else:
         raise ValueError(f"不支持的表列表查询: {db_type}")
     columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
@@ -427,6 +463,12 @@ def list_tables_with_info(db_alias: str, env: str,
             "LEFT JOIN pg_class c ON c.relname = t.table_name "
             "WHERE t.table_schema = 'public' "
             "ORDER BY t.table_name"
+        )
+    elif db_type in ("sqlite", "sqlite3"):
+        # SQLite: 表名 + 行数估算，无 COMMENT
+        sql = (
+            "SELECT name, 0, '' FROM sqlite_master "
+            "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
     else:
         raise ValueError(f"不支持的数据库类型: {db_type}")
@@ -508,6 +550,14 @@ def show_create_table(db_alias: str, table_name: str, env: str,
 
         return ddl
 
+    elif db_type in ("sqlite", "sqlite3"):
+        sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
+        params_sql = sql.replace("?", f"'{table_name}'")
+        columns, rows = execute_query(db_alias, params_sql, env, config_override, _conn=_conn)
+        if rows and rows[0][0]:
+            return rows[0][0]
+        return f"-- 无法获取 {table_name} 的 DDL（可能是虚拟表或系统表）"
+
     else:
         raise ValueError(f"不支持的表结构查询: {db_type}")
 
@@ -538,6 +588,17 @@ def describe_table(db_alias: str, table_name: str, env: str,
             "ORDER BY c.ordinal_position"
         )
         columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
+    elif db_type in ("sqlite", "sqlite3"):
+        sql = f"PRAGMA table_info({table_name})"
+        columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
+        # cid / name / type / notnull / dflt_value / pk
+        columns = ["Field", "Type", "Null", "Default", "Key", "Extra", "Comment"]
+        rows = [
+            (r[1], r[2], "NO" if r[3] else "YES", r[4] or "",
+             "PRI" if r[5] else "", "",
+             "")
+            for r in rows
+        ]
     else:
         raise ValueError(f"不支持的表结构查询: {db_type}")
     return columns, rows
@@ -597,6 +658,21 @@ def describe_indexes(db_alias: str, table_name: str, env: str,
             f"WHERE tablename = '{table_name}' "
             "ORDER BY indexname"
         )
+    elif db_type in ("sqlite", "sqlite3"):
+        sql = f"PRAGMA index_list({table_name})"
+        columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
+        # seq / name / unique / origin / partial
+        columns = ["Non_unique", "Key_name", "Column_name", "Index_type"]
+        result_rows = []
+        for r in rows:
+            idx_name = r[1]
+            is_unique = r[2]
+            # 获取索引列
+            info_sql = f"PRAGMA index_info({idx_name})"
+            _, info_rows = execute_query(db_alias, info_sql, env, config_override, _conn=_conn)
+            for ir in info_rows:
+                result_rows.append((0 if is_unique else 1, idx_name, ir[2], "btree"))
+        return columns, result_rows
     else:
         raise ValueError(f"不支持的数据库类型: {db_type}")
     columns, rows = execute_query(db_alias, sql, env, config_override, _conn=_conn)
@@ -695,8 +771,29 @@ def _has_limit(sql: str) -> bool:
     return bool(re.search(r"\bLIMIT\s+\d+\s*$", cleaned, re.IGNORECASE))
 
 
-def _inject_limit(sql: str, limit: int) -> str:
+def _inject_limit(sql: str, limit: int, db_type: str = "mysql") -> str:
+    """给 SQL 注入 LIMIT。支持 SELECT / DELETE / UPDATE（INSERT 不适用）。
+    PostgreSQL 不支持 DELETE LIMIT，会用 CTE 子查询替代。
+    """
     cleaned = re.sub(r";\s*$", "", sql.strip())
+    upper = cleaned.upper()
+
+    if upper.startswith("DELETE") and db_type in ("postgresql", "postgres"):
+        # PG: DELETE FROM t WHERE ctid IN (SELECT ctid FROM t WHERE ... LIMIT N)
+        # 提取表名和 WHERE 条件
+        m = re.match(
+            r"DELETE\s+FROM\s+(\w+)\s+(WHERE\s+.+)", cleaned,
+            re.IGNORECASE,
+        )
+        if m:
+            table = m.group(1)
+            where = m.group(2)
+            return (
+                f"DELETE FROM {table} "
+                f"WHERE ctid IN (SELECT ctid FROM {table} {where} LIMIT {limit})"
+            )
+        # 无 WHERE → 不改（_check_where_clause 会拦截）
+
     return f"{cleaned} LIMIT {limit}"
 
 
@@ -793,6 +890,20 @@ def _get_explain_info(db_alias: str, sql: str, env: str,
                     # 截断过长的条件
                     part_str += f" | cond={str(scan)[:40]}"
                 return estimated, part_str
+
+        elif db_type in ("sqlite", "sqlite3"):
+            explain_sql = f"EXPLAIN QUERY PLAN {sql}"
+            cursor.execute(explain_sql)
+            rows = cursor.fetchall()
+            elapsed = time.time() - t0
+            _log_query(db_alias, env, explain_sql, len(rows), elapsed)
+            if not rows:
+                return None, ""
+            # SQLite EXPLAIN QUERY PLAN: id|parent|notused|detail
+            details = [r[3] for r in rows if len(r) > 3 and r[3]]
+            summary = " | ".join(details[:3])
+            return None, summary
+
         elapsed = time.time() - t0
         _log_query(db_alias, env, sql, 0, elapsed, "EMPTY")
         return None, ""
@@ -835,9 +946,42 @@ def _format_number(n: int) -> str:
     return str(n)
 
 
-# ── SQL 校验 ────────────────────────────────────────────────
+# ── SQL 分类 ────────────────────────────────────────────────
 
-def validate_sql(sql: str):
+# 操作分级:
+#   READ   — SELECT / SHOW / DESCRIBE / EXPLAIN（始终允许）
+#   DML    — INSERT / UPDATE / DELETE / REPLACE（需配置 readonly: false）
+#   DDL    — ALTER / CREATE / DROP / TRUNCATE / RENAME（需配置 allow_ddl: true）
+#   BLOCKED— CALL / EXECUTE / PREPARE / GRANT / REVOKE / LOCK（始终拒绝）
+
+_READ_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "DESC ")
+_DML_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+_DDL_PREFIXES = ("ALTER", "CREATE", "DROP", "TRUNCATE", "RENAME")
+_BLOCKED_PREFIXES = ("CALL", "EXECUTE", "EXEC", "PREPARE", "GRANT",
+                     "REVOKE", "LOCK", "UNLOCK", "FLUSH", "KILL",
+                     "RESET", "SET ", "HANDLER", "LOAD ")
+
+
+def _sql_type(stripped_sql: str) -> str:
+    """返回 SQL 操作级别: READ / DML / DDL / BLOCKED"""
+    s = stripped_sql.upper()  # 防御性大写
+    for p in _BLOCKED_PREFIXES:
+        if s.startswith(p):
+            return "BLOCKED"
+    for p in _DDL_PREFIXES:
+        if s.startswith(p):
+            return "DDL"
+    for p in _DML_PREFIXES:
+        if s.startswith(p):
+            return "DML"
+    for p in _READ_PREFIXES:
+        if s.startswith(p):
+            return "READ"
+    return "BLOCKED"  # 无法识别的也拒绝
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """去掉 SQL 前缀的注释，返回大写开头的纯净 SQL"""
     stripped = sql.strip().upper()
     while stripped.startswith("--") or stripped.startswith("/*"):
         if stripped.startswith("--"):
@@ -848,11 +992,154 @@ def validate_sql(sql: str):
             stripped = stripped[end + 2:].strip() if end != -1 else ""
         else:
             break
-    if not (stripped.startswith("SELECT") or stripped.startswith("SHOW")
-            or stripped.startswith("DESCRIBE") or stripped.startswith("EXPLAIN")):
+    return stripped
+
+
+def _resolve_write_permission(db_alias: str, env: str,
+                              config_override: str | None = None) -> tuple:
+    """解析写权限。返回 (allow_dml: bool, allow_ddl: bool)。
+
+    优先级: 连接级 > 环境级 > 全局默认(禁用)
+    """
+    # 加载原始配置（需要 top-level settings）
+    if config_override:
+        path = Path(config_override)
+        if not path.is_absolute():
+            path = ASSETS_DIR / path
+    else:
+        path = _config_file_for(env)
+
+    settings: dict = {}
+    conn: dict = {}
+    try:
+        if path.exists():
+            raw = _load_any_config(path)
+            settings = raw.get("settings", {})
+            if isinstance(settings, dict):
+                pass
+            else:
+                settings = {}
+            connections = raw.get("connections", {})
+            conn = connections.get(db_alias, {})
+            if not isinstance(conn, dict):
+                conn = {}
+    except (FileNotFoundError, ImportError, RuntimeError, OSError):
+        pass
+
+    global_readonly: bool | None = settings.get("readonly_mode") if isinstance(settings, dict) else None
+    global_allow_ddl: bool = settings.get("allow_ddl", False) if isinstance(settings, dict) else False
+
+    conn_readonly: bool | None = conn.get("readonly") if isinstance(conn, dict) else None
+    conn_allow_ddl: bool | None = conn.get("allow_ddl") if isinstance(conn, dict) else None
+
+    # 连接级覆盖环境级
+    if conn_readonly is not None:
+        readonly = conn_readonly
+    elif global_readonly is not None:
+        readonly = global_readonly
+    else:
+        readonly = True  # 默认只读
+
+    if conn_allow_ddl is not None:
+        allow_ddl = conn_allow_ddl
+    elif global_allow_ddl is not None:
+        allow_ddl = global_allow_ddl
+    else:
+        allow_ddl = False  # 默认禁止 DDL
+
+    return (not readonly), bool(allow_ddl)
+
+
+def _check_where_clause(sql: str, op_type: str):
+    """检查 DELETE/UPDATE 是否有 WHERE 子句。无 WHERE 时拒绝。"""
+    if op_type != "DML":
+        return
+    upper = sql.upper()
+    if upper.startswith("DELETE") or upper.startswith("UPDATE"):
+        if " WHERE " not in upper:
+            raise ValueError(
+                f"拒绝无 WHERE 的 {upper.split()[0]} 操作，这会修改整表数据。"
+                f"\n如确认需要全表操作，请添加 WHERE 1=1。"
+            )
+
+
+def _confirm_write(env: str, db_alias: str, conn_info: dict,
+                   sql: str, op_type: str):
+    """写操作确认提示。prod 环境强制确认，非交互式通过环境变量跳过。"""
+    assume_yes = os.environ.get("DB_QUERY_ASSUME_YES", "").strip() in ("1", "yes", "true")
+
+    label = "DDL" if op_type == "DDL" else "DML"
+    host_info = conn_info.get("host", conn_info.get("path", "?"))
+    database = conn_info.get("database", conn_info.get("path", "?"))
+
+    msg = (
+        f"\n⚠️  即将执行 {label} 操作:\n"
+        f"    环境: {env}\n"
+        f"    连接: {db_alias} ({host_info}/{database})\n"
+        f"    SQL:  {sql[:200]}\n"
+    )
+
+    if env == "prod":
+        # prod 环境一律强制确认
+        if assume_yes:
+            print(msg + "    确认: 已跳过 (DB_QUERY_ASSUME_YES=1)")
+            return
+        print(msg + "\n    [prod 环境] 输入 yes 确认执行: ", end="", flush=True)
+        try:
+            answer = sys.stdin.readline().strip()
+        except (EOFError, KeyboardInterrupt):
+            raise RuntimeError("已取消写操作")
+        if answer.lower() != "yes":
+            raise RuntimeError("已取消写操作")
+    elif assume_yes:
+        print(msg + "    确认: 已跳过 (DB_QUERY_ASSUME_YES=1)")
+    else:
+        # 非 prod 环境，直接执行但打印提示
+        print(msg + "    确认: 非 prod 环境，自动确认执行")
+
+
+def validate_sql(sql: str, db_alias: str | None = None, env: str | None = None,
+                 config_override: str | None = None, dry_run: bool = False):
+    """校验 SQL 操作级别，根据配置放行或拒绝。
+
+    返回: (op_type: str)  — "READ" / "DML" / "DDL"
+    抛出: ValueError 如果操作被拒绝
+    """
+    stripped = _strip_sql_comments(sql)
+    op_type = _sql_type(stripped)
+
+    if op_type == "BLOCKED":
         raise ValueError(
-            f"仅允许只读查询 (SELECT/SHOW/DESCRIBE/EXPLAIN)，收到: {sql[:50]}..."
+            f"拒绝执行此语句类型，收到: {sql[:50]}...\n"
+            f"支持: SELECT/SHOW/DESCRIBE/EXPLAIN/INSERT/UPDATE/DELETE/REPLACE\n"
+            f"受控: ALTER/CREATE/DROP/TRUNCATE (需 allow_ddl: true)"
         )
+
+    if op_type == "READ":
+        return op_type
+
+    # DML / DDL — 检查配置权限
+    if db_alias is None or env is None:
+        raise ValueError(
+            f"{'DDL' if op_type == 'DDL' else 'DML'} 操作被拒绝：写操作未启用。"
+            f"\n请在 YAML 中设置 readonly: false (DML) 或 allow_ddl: true (DDL)。"
+        )
+
+    allow_dml, allow_ddl = _resolve_write_permission(db_alias, env, config_override)
+
+    if op_type == "DML" and not allow_dml:
+        raise ValueError(
+            f"DML 操作被拒绝: [{db_alias}] ({env}) 写操作未启用。"
+            f"\n请在配置中设置 readonly: false"
+        )
+
+    if op_type == "DDL" and not allow_ddl:
+        raise ValueError(
+            f"DDL 操作被拒绝: [{db_alias}] ({env}) DDL 未启用。"
+            f"\n请在配置中设置 allow_ddl: true"
+        )
+
+    return op_type
 
 
 # ── 表名通配符匹配 ──────────────────────────────────────────
@@ -949,7 +1236,7 @@ def _handle_structure_cmd(args, mode: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="数据库查询工具 —— 多环境 SELECT 只读查询",
+        description="数据库查询工具 —— 多环境 SQL 查询/写入 (MySQL/PostgreSQL/SQLite)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -959,6 +1246,7 @@ def main():
   python query.py --limit 500 --env prod mydb "SELECT ..."     # 指定行数
   python query.py mydb "SELECT ..." --count                    # 只看行数
   python query.py mydb "SELECT ..." --timeout 30               # 30s 超时
+  python query.py mydb "DELETE FROM logs WHERE id<100" --limit 500 --dry-run  # 预览
   python query.py --list                                       # 扫描所有环境
   python query.py --list --env prod                            # 只看 prod
   python query.py --env prod mydb --show                       # 列出 prod 全部表
@@ -973,7 +1261,7 @@ def main():
         """,
     )
     parser.add_argument("db_alias", nargs="?", help="数据库别名")
-    parser.add_argument("sql", nargs="?", help="SQL 查询语句 (仅 SELECT)")
+    parser.add_argument("sql", nargs="?", help="SQL 语句 (SELECT/INSERT/UPDATE/DELETE/REPLACE)")
     parser.add_argument(
         "--env", "-e", metavar="ENV",
         help="目标环境: dev / test / prod (默认: dev, 可通过 DB_QUERY_DEFAULT_ENV 环境变量修改)"
@@ -1016,7 +1304,7 @@ def main():
     )
     parser.add_argument(
         "--limit", metavar="N", type=int,
-        help=f"限制返回行数 (默认: {DEFAULT_LIMIT}, 0 = 不限制)"
+        help=f"限制行数 (SELECT 默认: {DEFAULT_LIMIT}; DELETE/UPDATE 需手动指定)"
     )
     parser.add_argument(
         "--no-limit", action="store_true",
@@ -1024,11 +1312,15 @@ def main():
     )
     parser.add_argument(
         "--count", action="store_true",
-        help="只执行 COUNT(*) 预估行数，不取数据"
+        help="只执行 COUNT(*) 预估行数，不取数据（仅对 SELECT 有效）"
     )
     parser.add_argument(
         "--timeout", metavar="N", type=int,
         help="查询超时时间 (秒)，超时自动断开"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="预览 DML/DDL 操作，显示 EXPLAIN + SQL 但不执行"
     )
 
     args = parser.parse_args()
@@ -1106,16 +1398,22 @@ def main():
         _handle_structure_cmd(args, "ddl")
         return
 
-    # ── 查询 ──
+    # ── 查询 / 写操作 ──
     if not args.sql:
         parser.print_help()
         sys.exit(1)
 
     try:
-        validate_sql(args.sql)
+        op_type = validate_sql(args.sql, args.db_alias, env, args.config,
+                               dry_run=args.dry_run)
         sql = args.sql.strip()
+        is_write = op_type in ("DML", "DDL")
 
+        # --count 仅对 SELECT 有效
         if args.count:
+            if is_write:
+                print("[ERROR] --count 仅适用于 SELECT 语句", file=sys.stderr)
+                sys.exit(1)
             cnt = _execute_count(args.db_alias, sql, env, args.config)
             est, summary = _get_explain_info(args.db_alias, sql, env, args.config)
             print(f"环境: {env}")
@@ -1124,35 +1422,72 @@ def main():
                 print(f"📊 EXPLAIN: {summary}")
             return
 
-        est, summary = _get_explain_info(args.db_alias, sql, env, args.config)
+        # 写操作安全检查
+        if is_write:
+            _check_where_clause(sql, op_type)
+            conn_info = get_connection(args.db_alias, env, args.config)
+            db_type = conn_info["type"].lower()
 
-        has_limit = _has_limit(sql)
-        effective_limit = None
+            # EXPLAIN 预估（UPDATE/DELETE 也有效，INSERT 不需要）
+            if not sql.upper().startswith("INSERT"):
+                est, summary = _get_explain_info(args.db_alias, sql, env, args.config)
+                if summary:
+                    print(f"📊 [{env}] EXPLAIN: {summary}")
+                if est is not None and est > LARGE_TABLE_THRESHOLD:
+                    print(f"   ⚠️  预估影响 {_format_number(est)} 行 (大表)")
 
-        if args.no_limit:
-            pass
-        elif args.limit is not None:
-            if args.limit > 0:
-                if not has_limit:
-                    sql = _inject_limit(sql, args.limit)
-                effective_limit = args.limit
-        elif not has_limit:
-            sql = _inject_limit(sql, DEFAULT_LIMIT)
-            effective_limit = DEFAULT_LIMIT
+            # --dry-run 预览
+            if args.dry_run:
+                print(f"\n🔍 [DRY-RUN] 以下操作未实际执行:")
+                print(f"    SQL: {sql[:300]}")
+                return
 
-        if est is not None and est > LARGE_TABLE_THRESHOLD:
-            print(f"⚠️  [{env}] EXPLAIN: {summary}")
-            if effective_limit and not args.no_limit:
-                print(f"   预估 {_format_number(est)} 行 (大表)，已自动 LIMIT {effective_limit}")
-        elif summary:
-            print(f"📊 [{env}] EXPLAIN: {summary}")
+            # 确认提示
+            _confirm_write(env, args.db_alias, conn_info, sql, op_type)
 
+            # --limit 注入 (仅 DELETE/UPDATE)
+            effective_limit = None
+            upper = sql.upper()
+            if args.limit is not None and args.limit > 0:
+                if (upper.startswith("DELETE") or upper.startswith("UPDATE")):
+                    if not _has_limit(sql):
+                        sql = _inject_limit(sql, args.limit, db_type)
+                        effective_limit = args.limit
+
+        else:
+            # SELECT 分支 —— 原有逻辑
+            est, summary = _get_explain_info(args.db_alias, sql, env, args.config)
+            effective_limit = None
+
+            has_limit = _has_limit(sql)
+            if args.no_limit:
+                pass
+            elif args.limit is not None:
+                if args.limit > 0:
+                    if not has_limit:
+                        sql = _inject_limit(sql, args.limit, db_type="mysql")
+                    effective_limit = args.limit
+            elif not has_limit:
+                sql = _inject_limit(sql, DEFAULT_LIMIT, db_type="mysql")
+                effective_limit = DEFAULT_LIMIT
+
+            if est is not None and est > LARGE_TABLE_THRESHOLD:
+                print(f"⚠️  [{env}] EXPLAIN: {summary}")
+                if effective_limit and not args.no_limit:
+                    print(f"   预估 {_format_number(est)} 行 (大表)，已自动 LIMIT {effective_limit}")
+            elif summary:
+                print(f"📊 [{env}] EXPLAIN: {summary}")
+
+        # 执行
         columns, rows = execute_query(args.db_alias, sql, env, args.config,
-                                      _timeout=args.timeout)
-        format_output(columns, rows, args.format)
+                                      _timeout=args.timeout, _op_type=op_type)
 
-        if effective_limit and len(rows) == effective_limit:
-            print(f"(已截断至 {effective_limit} 行，数据可能不完整 • --no-limit 查看全部)")
+        if is_write:
+            print(f"✅ Query OK, {rows} row(s) affected")
+        else:
+            format_output(columns, rows, args.format)
+            if effective_limit and len(rows) == effective_limit:
+                print(f"(已截断至 {effective_limit} 行，数据可能不完整 • --no-limit 查看全部)")
 
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
@@ -1176,7 +1511,7 @@ def _handle_keychain_set(alias: str, env: str, args):
     subprocess.run(
         [
             "security", "add-generic-password",
-            "-a", "db-query",
+            "-a", "db-skills",
             "-s", service,
             "-w", pwd,
             "-U",

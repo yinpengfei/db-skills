@@ -1,4 +1,4 @@
-# db-query — Multi-Environment Database Query CLI for AI Agents
+# db-skills — Multi-Environment Database Query CLI for AI Agents
 
 A universal **database CLI tool** / **database skill** that lets **Claude Code**, **OpenCode**, **Hermes**, **Cursor**, **WorkBuddy**, and any AI coding assistant execute read-only SQL queries using pre-configured database aliases across multiple environments. Use it as an **AI agent database tool** (db skill / database skills) — stop pasting host/port/user to your AI; just tell it the alias and query.
 
@@ -142,7 +142,7 @@ Show me all tables in prod user_db, then describe user_info
 
 ```bash
 # Set up an alias for convenience
-alias dbq='python3 ~/.workbuddy/skills/db-query/scripts/query.py'
+alias dbq='python3 ~/.workbuddy/skills/db-skills/scripts/query.py'
 dbq my_db -d users
 ```
 
@@ -168,7 +168,7 @@ Common flags: `--env dev|test|prod` (default: dev), `--config <file>` (custom co
 ## Directory Structure
 
 ```
-db-query/
+db-skills/
 ├── SKILL.md                           # WorkBuddy skill entry
 ├── README.md                          # Chinese docs (default on GitHub)
 ├── README_EN.md                       # English docs

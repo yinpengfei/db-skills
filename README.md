@@ -1,4 +1,4 @@
-# db-query — 多环境数据库查询 CLI 工具（AI 助手通用）
+# db-skills — 多环境数据库查询 CLI 工具（AI 助手通用）
 
 一个通用的 **数据库 CLI 工具** / **数据库查询技能**，让 **Claude Code**、**OpenCode**、**Hermes**、**Cursor**、**WorkBuddy** 等任意 AI 编程助手通过预配置的数据库别名按环境执行只读 SQL 查询。可作为 AI 编程助手的数据库工具（db skill / database skill）直接集成，不用再给 AI 贴 host/port/user — 告诉它别名和查询语句即可。
 
@@ -142,7 +142,7 @@ AI 会自动构造 `python3 scripts/query.py ...` 命令并执行。这个 **AI 
 
 ```bash
 # 设置别名方便调用
-alias dbq='python3 ~/.workbuddy/skills/db-query/scripts/query.py'
+alias dbq='python3 ~/.workbuddy/skills/db-skills/scripts/query.py'
 dbq my_db -d users
 ```
 
@@ -168,7 +168,7 @@ dbq my_db -d users
 ## 目录结构
 
 ```
-db-query/
+db-skills/
 ├── SKILL.md                           # WorkBuddy 技能入口
 ├── README.md                          # 中文文档（GitHub 默认展示）
 ├── README_EN.md                       # English docs
