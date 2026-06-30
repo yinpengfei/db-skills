@@ -131,6 +131,13 @@ python3 scripts/query.py my_db "SELECT * FROM users WHERE status=1"
 
 python3 scripts/query.py --env prod my_db "SELECT COUNT(*) FROM orders"
 
+# --multi execute multiple SELECTs in one connection
+python3 scripts/query.py my_db --multi "
+  SELECT COUNT(*) FROM users;
+  SELECT * FROM users WHERE status=1 LIMIT 5;
+  SELECT COUNT(*) FROM orders
+"
+
 # --count: row count only, no data returned
 python3 scripts/query.py my_db "SELECT * FROM orders WHERE status=1" --count
 
@@ -240,6 +247,7 @@ dbq my_db -d users
 | `--limit N` | Query: override row limit (default: 100); Write: limit DELETE/UPDATE affected rows |
 | `--no-limit` | Disable auto LIMIT (queries only) |
 | `--dry-run` | Preview write SQL + EXPLAIN without execution |
+| `--multi` | Execute multiple SELECTs (semicolon-separated), one connection |
 | `--timeout N` | Query timeout in seconds |
 | `--keychain-set` | Save password to macOS Keychain |
 | `--format json/csv` | Output format |

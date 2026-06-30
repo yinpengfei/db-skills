@@ -44,6 +44,7 @@ from query import (
     validate_sql,
     _sql_type,
     _strip_sql_comments,
+    _split_sql_statements,
     _check_where_clause,
     _resolve_write_permission,
     _config_file_for,
@@ -606,6 +607,55 @@ def test_limit_dml():
     check("SELECT LIMIT", result == "SELECT * FROM t LIMIT 100")
 
 test_limit_dml()
+
+
+# ══════════════════════════════════════════════════════════════
+section("16. --multi 多语句 SELECT (_split_sql_statements)")
+
+def test_multi_split():
+    # 单条
+    result = _split_sql_statements("SELECT 1")
+    check("单条", len(result) == 1 and result[0][1] == "SELECT 1")
+
+    # 两条
+    result = _split_sql_statements("SELECT 1; SELECT 2")
+    check("两条", len(result) == 2 and result[1][1] == "SELECT 2")
+
+    # 三条
+    result = _split_sql_statements("SELECT 1; SELECT 2; SELECT 3")
+    check("三条", len(result) == 3)
+
+    # 尾部多余分号
+    result = _split_sql_statements("SELECT 1;")
+    check("尾部分号", len(result) == 1)
+
+    # 空语句过滤
+    result = _split_sql_statements("SELECT 1; ; SELECT 2")
+    check("中间空语句", len(result) == 2)
+
+    # 序号正确
+    result = _split_sql_statements("A; B; C")
+    check("序号1", result[0][0] == 1)
+    check("序号3", result[2][0] == 3)
+
+    # 空白过滤
+    result = _split_sql_statements("  ; SELECT 1  ;  ")
+    check("多余空白分号", len(result) == 1)
+
+    # 多行
+    result = _split_sql_statements("""
+        SELECT a FROM t1;
+        SELECT b FROM t2;
+        SELECT c FROM t3
+    """)
+    check("多行三条", len(result) == 3)
+    check("多行内容去空白", result[1][1] == "SELECT b FROM t2")
+
+    # 只有空白 / 无语句
+    result = _split_sql_statements("  ;  ;  ")
+    check("纯空白", len(result) == 0)
+
+test_multi_split()
 
 
 # ══════════════════════════════════════════════════════════════

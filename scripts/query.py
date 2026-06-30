@@ -995,6 +995,23 @@ def _strip_sql_comments(sql: str) -> str:
     return stripped
 
 
+def _split_sql_statements(sql: str) -> list:
+    """按分号拆分多条 SQL 语句。返回 [(序号, 语句), ...]。
+
+    注意: 简单按 ; 分割，不处理字符串字面量中的分号（SELECT 场景概率极低）。
+    空语句和纯空白语句被过滤。
+    """
+    parts = sql.split(";")
+    result = []
+    seq = 0
+    for p in parts:
+        s = p.strip()
+        if s:
+            seq += 1
+            result.append((seq, s))
+    return result
+
+
 def _resolve_write_permission(db_alias: str, env: str,
                               config_override: str | None = None) -> tuple:
     """解析写权限。返回 (allow_dml: bool, allow_ddl: bool)。
@@ -1232,6 +1249,97 @@ def _handle_structure_cmd(args, mode: str):
             shared_conn.close()
 
 
+def _handle_multi_query(args):
+    """处理 --multi 多条 SELECT：一次连接，逐条执行。
+
+    约束:
+    - 只允许 READ 语句（SELECT/SHOW/DESCRIBE/EXPLAIN）
+    - 不支持 --count / --dry-run
+    - 分号简单分割，不处理字符串字面量中的分号
+    """
+    env = args.env or DEFAULT_ENV
+    label = f"{args.db_alias} ({env})"
+
+    if args.count:
+        print("[ERROR] --multi 不支持 --count", file=sys.stderr)
+        sys.exit(1)
+    if args.dry_run:
+        print("[ERROR] --multi 不支持 --dry-run", file=sys.stderr)
+        sys.exit(1)
+
+    statements = _split_sql_statements(args.sql)
+    if not statements:
+        print("[ERROR] 没有有效的 SQL 语句", file=sys.stderr)
+        sys.exit(1)
+
+    # 校验: 全部必须是 READ 类型
+    for seq, stmt in statements:
+        op_type = _sql_type(stmt)
+        if op_type != "READ":
+            raise ValueError(
+                f"--multi 仅支持查询 (SELECT/SHOW/DESCRIBE/EXPLAIN)\n"
+                f"第 {seq} 条: {op_type} (不允许)\n"
+                f"SQL: {stmt[:100]}"
+            )
+
+    # 一次连接
+    if args.timeout is not None:
+        conn, db_type = _open_raw_connection(args.db_alias, env, args.config,
+                                             timeout=args.timeout)
+    else:
+        conn, db_type = _open_raw_connection(args.db_alias, env, args.config)
+
+    try:
+        print(f"━━━ {label} — {len(statements)} 条查询 ━━━")
+
+        for seq, stmt in statements:
+            # EXPLAIN
+            try:
+                est, summary = _get_explain_info(args.db_alias, stmt, env,
+                                                 args.config, _conn=conn)
+            except Exception:
+                summary = None
+
+            # 自动 LIMIT（与单条 SELECT 一致）
+            effective_limit = None
+            sql_to_run = stmt
+            has_limit = _has_limit(stmt)
+
+            if args.no_limit:
+                pass
+            elif args.limit is not None and args.limit > 0:
+                if not has_limit:
+                    sql_to_run = _inject_limit(stmt, args.limit, db_type)
+                    effective_limit = args.limit
+            elif not has_limit:
+                sql_to_run = _inject_limit(stmt, DEFAULT_LIMIT, db_type)
+                effective_limit = DEFAULT_LIMIT
+
+            # 执行
+            cursor = conn.cursor()
+            start = time.time()
+            cursor.execute(sql_to_run)
+            elapsed = time.time() - start
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            _log_query(args.db_alias, env, stmt.strip(), len(rows), elapsed,
+                       op_type="READ")
+
+            # 输出
+            print(f"\n── [{seq}/{len(statements)}] {stmt[:60]}{'...' if len(stmt) > 60 else ''}")
+            if summary:
+                print(f"📊 EXPLAIN: {summary}")
+            format_output(columns, rows, args.format)
+            if effective_limit and len(rows) == effective_limit:
+                print(f"(已截断至 {effective_limit} 行)")
+
+    except Exception:
+        # _get_explain_info/execute may raise
+        raise
+    finally:
+        conn.close()
+
+
 # ── 入口 ─────────────────────────────────────────────────────
 
 def main():
@@ -1322,6 +1430,10 @@ def main():
         "--dry-run", action="store_true",
         help="预览 DML/DDL 操作，显示 EXPLAIN + SQL 但不执行"
     )
+    parser.add_argument(
+        "--multi", action="store_true",
+        help="执行多条 SELECT（分号分隔），一次连接全部执行"
+    )
 
     args = parser.parse_args()
 
@@ -1396,6 +1508,11 @@ def main():
     # ── --ddl ──
     if args.ddl:
         _handle_structure_cmd(args, "ddl")
+        return
+
+    # ── --multi 多条 SELECT ──
+    if args.multi:
+        _handle_multi_query(args)
         return
 
     # ── 查询 / 写操作 ──

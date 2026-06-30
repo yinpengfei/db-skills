@@ -132,6 +132,13 @@ python3 scripts/query.py my_db "SELECT * FROM users WHERE status=1"
 
 python3 scripts/query.py --env prod my_db "SELECT COUNT(*) FROM orders"
 
+# --multi 一次连接执行多条 SELECT（分号分隔）
+python3 scripts/query.py my_db --multi "
+  SELECT COUNT(*) FROM users;
+  SELECT * FROM users WHERE status=1 LIMIT 5;
+  SELECT COUNT(*) FROM orders
+"
+
 # --count 只看行数不取数据
 python3 scripts/query.py my_db "SELECT * FROM orders WHERE status=1" --count
 
@@ -242,6 +249,7 @@ dbq my_db -d users
 | `--limit N` | 查询：指定返回行数（默认 100）；写操作：限制 DELETE/UPDATE 影响行数 |
 | `--no-limit` | 取消自动 LIMIT（仅查询） |
 | `--dry-run` | 预览写操作 SQL + EXPLAIN，不执行 |
+| `--multi` | 执行多条 SELECT（分号分隔），一次连接 |
 | `--timeout N` | 查询超时秒数 |
 | `--keychain-set` | 将密码存入 macOS Keychain |
 | `--format json/csv` | 输出格式 |
