@@ -69,10 +69,8 @@ pip install psycopg2-binary
 ### 2. Configure Connections
 
 ```bash
-# Copy config templates (safe to re-run, won't overwrite existing)
-cp -n assets/connections.dev.yaml.example  assets/connections.dev.yaml
-cp -n assets/connections.test.yaml.example assets/connections.test.yaml
-cp -n assets/connections.prod.yaml.example assets/connections.prod.yaml
+# Generate config templates (safe to re-run, skips existing)
+python3 scripts/query.py --init-config
 
 # Edit with your host / user / database
 vim assets/connections.dev.yaml

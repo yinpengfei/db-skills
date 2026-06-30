@@ -52,13 +52,12 @@ agent_created: true
 ### 首次配置
 
 ```bash
-# 1. 复制配置文件 (⚠️ 只做一次！cp -n 不会覆盖已有文件)
-cp -n assets/connections.dev.yaml.example assets/connections.dev.yaml
-cp -n assets/connections.test.yaml.example assets/connections.test.yaml
-cp -n assets/connections.prod.yaml.example assets/connections.prod.yaml
+# 1. 生成配置文件 (⚠️ 只做一次！已存在则跳过)
+python scripts/query.py --init-config
 
 # 2. 编辑填入各环境的 host / user / database
-#    Prod 建议额外 chmod 600:
+vim assets/connections.dev.yaml
+# Prod 建议额外 chmod 600 (--init-config 已自动设置):
 chmod 600 assets/connections.prod.yaml
 
 # 3. 密码 (三选一，按优先级)
@@ -66,9 +65,8 @@ chmod 600 assets/connections.prod.yaml
 python scripts/query.py --keychain-set recharge_db --env dev
 python scripts/query.py --keychain-set recharge_db --env test
 python scripts/query.py --keychain-set recharge_db --env prod
-#    b) .env 文件:
-cp -n assets/.env.example assets/.env
-# 编辑填入 DB_PWD_DEV_RECHARGE_DB=xxx 等
+#    b) .env 文件 (--init-config 已生成):
+# 编辑 assets/.env 填入 DB_PWD_DEV_RECHARGE_DB=xxx 等
 #    c) 环境变量: export DB_PWD_DEV_RECHARGE_DB=xxx
 ```
 
@@ -265,4 +263,4 @@ python3 scripts/test.py
 
 `logs/` 目录首次查询时自动创建。
 
-**注意：`cp -n` 不会覆盖已有配置文件**，更新技能后重新运行 `cp -n` 是安全的，不会覆盖你已编辑的配置。
+**注意：`python scripts/query.py --init-config` 已存在则跳过**，更新技能后重新运行是安全的，不会覆盖你已编辑的配置。

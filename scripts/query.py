@@ -47,6 +47,145 @@ LOG_DIR = SKILL_DIR / "logs"
 
 DEFAULT_ENV = os.environ.get("DB_QUERY_DEFAULT_ENV", "dev")
 
+# ── 配置模板（内嵌，不依赖 assets/ 目录文件）─────────────────
+# ClawHub 安全策略不收录 .yaml / .env 文件，模板内容内嵌到代码中，
+# 通过 --init-config 命令生成，无需 cp -n assets/*.example
+
+_CONFIG_TEMPLATES = {
+    "connections.dev.yaml": r"""# 开发环境数据库连接配置
+# ⚠️  三种密码管理方式（值字段支持 ${VAR} 占位符）:
+#   1. 不写 password 字段 → 通过 Keychain/.env/环境变量 约定查找 DB_PWD_DEV_{ALIAS}
+#   2. password: ${MY_SHARED_PASS} → 从 assets/.env 或环境变量中解析（多库共用推荐）
+#   3. password: ${ENV_VAR} → 直接引用父进程环境变量
+#
+# 查询: python scripts/query.py sqlite_test "SELECT 1"
+
+connections:
+  # --- SQLite 默认测试连接（零依赖，开箱即用）─────────
+  sqlite_test:
+    type: sqlite
+    path: ":memory:"
+    readonly: false
+
+  # --- 方式 1: 不写 password，靠脚本自动查找 ───
+  # recharge_db:
+  #   type: mysql
+  #   host: 10.18.122.60
+  #   port: 3306
+  #   user: readonly_dev
+  #   database: recharge
+  #   charset: utf8mb4
+  #   connect_timeout: 10
+  #   readonly: true
+
+  # --- 方式 2: ${VAR} 占位，多库共享密码（推荐） ───
+  # recharge_db:
+  #   type: mysql
+  #   host: 10.18.122.60
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_DEV}
+  #   database: recharge
+  #
+  # pay_db:
+  #   type: mysql
+  #   host: 10.18.122.60
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_DEV}
+  #   database: pay
+""",
+
+    "connections.test.yaml": r"""# 测试环境数据库连接配置
+# 用法同 connections.dev.yaml
+
+connections:
+  # recharge_db:
+  #   type: mysql
+  #   host: 10.18.122.61
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_TEST}
+  #   database: recharge
+  #
+  # pay_db:
+  #   type: mysql
+  #   host: 10.18.122.61
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_TEST}
+  #   database: pay
+""",
+
+    "connections.prod.yaml": r"""# 生产环境数据库连接配置（独立文件，建议 chmod 600）
+# 用法同 connections.dev.yaml
+
+connections:
+  # recharge_db:
+  #   type: mysql
+  #   host: 10.19.xx.xx
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_PROD}
+  #   database: recharge
+  #
+  # pay_db:
+  #   type: mysql
+  #   host: 10.19.xx.xx
+  #   port: 3306
+  #   user: readonly
+  #   password: ${PWD_PROD}
+  #   database: pay
+""",
+
+    ".env": r"""# 数据库密码配置文件
+# ⚠️  包含敏感信息，不要提交到 Git！
+# 编辑填入实际密码后: chmod 600 .env
+#
+# 两种使用方式:
+#
+# --- 方式 1: 按约定命名（脚本自动查找） ---
+# 规则: DB_PWD_{ENV}_{ALIAS大写短横换下划线}
+# DB_PWD_DEV_RECHARGE_DB=dev_password_here
+# DB_PWD_TEST_RECHARGE_DB=test_password_here
+#
+# --- 方式 2: 自定义变量名 + YAML ${VAR} 引用（多库共享推荐） ---
+# PWD_DEV=shared_dev_password
+# PWD_TEST=shared_test_password
+# PWD_PROD=shared_prod_password
+# 在 connections.{env}.yaml 中用 password: ${PWD_PROD} 引用
+""",
+}
+
+
+def _handle_init_config():
+    """生成配置模板文件到 assets/ 目录，已存在则跳过。"""
+    created, skipped = [], []
+    for filename, content in _CONFIG_TEMPLATES.items():
+        target = ASSETS_DIR / filename
+        if target.exists():
+            skipped.append(filename)
+        else:
+            target.write_text(content, encoding="utf-8")
+            created.append(filename)
+            # prod 配置自动设置 600 权限
+            if "prod" in filename:
+                try:
+                    target.chmod(0o600)
+                except OSError:
+                    pass
+
+    if created:
+        print(f"✅ 已创建 {len(created)} 个配置文件:")
+        for f in created:
+            print(f"   assets/{f}")
+    if skipped:
+        print(f"⏭️  跳过 {len(skipped)} 个（已存在）:")
+        for f in skipped:
+            print(f"   assets/{f}")
+    print("\n下一步: 编辑 assets/connections.dev.yaml 填入你的数据库连接信息。")
+    print("密码管理: Keychain 自动查找 > .env 文件 > 环境变量")
+
 
 def _config_file_for(env: str) -> Path:
     """env → connections.{env}.yaml"""
@@ -1434,8 +1573,17 @@ def main():
         "--multi", action="store_true",
         help="执行多条 SELECT（分号分隔），一次连接全部执行"
     )
+    parser.add_argument(
+        "--init-config", action="store_true",
+        help="生成配置模板文件到 assets/ 目录（已存在则跳过）"
+    )
 
     args = parser.parse_args()
+
+    # ── --init-config（无需 DB 连接，直接生成模板）──
+    if args.init_config:
+        _handle_init_config()
+        return
 
     # ── 解析环境 ──
     env = args.env or DEFAULT_ENV

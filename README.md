@@ -69,10 +69,8 @@ pip install psycopg2-binary
 ### 2. 配置连接
 
 ```bash
-# 复制配置模板（cp -n 不会覆盖已有文件，重复执行安全）
-cp -n assets/connections.dev.yaml.example  assets/connections.dev.yaml
-cp -n assets/connections.test.yaml.example assets/connections.test.yaml
-cp -n assets/connections.prod.yaml.example assets/connections.prod.yaml
+# 生成配置模板（已存在则跳过，安全可重复执行）
+python3 scripts/query.py --init-config
 
 # 编辑填入你的 host / user / database
 vim assets/connections.dev.yaml
